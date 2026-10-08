@@ -1,0 +1,76 @@
+# Install this file in cicd-learning-staging/.github/workflows/staging.yml.
+name: Deploy calculator to staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: 'Full 40-character commit SHA from cicd-learning-lab'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate commit ID
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          if [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo 'Enter the full 40-character commit SHA.'
+            exit 1
+          fi
+
+      - name: Get the selected calculator version
+        uses: actions/checkout@v7
+        with:
+          repository: Mahfuzhur/cicd-learning-lab
+          ref: ${{ inputs.source_commit }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.19.0'
+          package-manager-cache: false
+
+      - name: Run calculator tests
+        run: node --test
+
+      - name: Package website
+        run: node build.js
+
+      - name: Record the previewed version
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          printf '%s\n' "$SOURCE_COMMIT" > dist/version.txt
+          echo "Staging source commit: $SOURCE_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload staging website
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to the staging repository's Pages site
+        id: deployment
+        uses: actions/deploy-pages@v4
